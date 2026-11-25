@@ -25,7 +25,7 @@ CMDS := $(patsubst ./cmd/%/,%,$(sort $(dir $(wildcard ./cmd/*/))))
 CMD_TARGETS := $(patsubst %,cmd-%, $(CMDS))
 
 CHECK_TARGETS := lint helm-lint
-MAKE_TARGETS := binaries build check vendor fmt test test-e2e cmds coverage $(CHECK_TARGETS)
+MAKE_TARGETS := binaries build check vendor verify-go-modules fmt test test-e2e cmds coverage $(CHECK_TARGETS)
 
 TARGETS := $(MAKE_TARGETS) $(CMD_TARGETS)
 
@@ -49,6 +49,10 @@ build:
 # Update the vendor folder
 vendor:
 	go mod vendor
+
+# Check that go.mod, go.sum and vendor/ are tidy and in sync
+verify-go-modules:
+	hack/verify-go-modules.sh
 
 # Apply go fmt to the codebase
 fmt:
