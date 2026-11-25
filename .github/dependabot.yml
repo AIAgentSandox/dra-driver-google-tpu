@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # Go modules. vendor/ is detected and refreshed with `go mod vendor`, so each
+  # PR carries go.mod, go.sum and vendor/ together.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - release-note-none
+    groups:
+      # k8s.io modules are pinned to one Kubernetes release and move together.
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      all-others:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+
+  # GitHub Actions pinned by commit SHA; the "# vN" comments are updated too.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - release-note-none
+    groups:
+      actions:
+        patterns:
+          - "*"
