@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path"
 	"sync"
 
 	resourceapi "k8s.io/api/resource/v1"
@@ -345,5 +347,15 @@ func (s *DeviceState) UpdateHealth(deviceName string, currentHealth bool) error 
 		klog.Infof("Update signal sent successfully for device %s", deviceName)
 	}
 
+	return nil
+}
+
+func RemoveDirContents(dirPath string) error {
+	dir, _ := os.ReadDir(dirPath)
+	for _, d := range dir {
+		if err := os.RemoveAll(path.Join([]string{dirPath, d.Name()}...)); err != nil {
+			return fmt.Errorf("failed deleting: %s, error %w", d.Name(), err)
+		}
+	}
 	return nil
 }

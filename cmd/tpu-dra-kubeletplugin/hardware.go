@@ -63,7 +63,7 @@ type tpuHardware struct {
 	deviceRegex *regexp.Regexp
 	chipCount   int
 	// generation is the TPU generation read from the PCI ids of the vfio
-	// devices, in the vocabulary AcceleratorGen (see util.go) uses. Empty when
+	// devices, in the vocabulary AcceleratorGen (see topology.go) uses. Empty when
 	// the devices are not bound to vfio-pci (generations up to v4 use
 	// /dev/accel instead) or their generation is not one
 	// tpuGenerationFromPCIIDs recognizes yet.
@@ -78,11 +78,11 @@ type tpuGenerationFamily struct {
 	// pciSubsystemID disambiguates a pciDeviceID reused by more than one
 	// family. Leave empty when the device id alone is enough.
 	pciSubsystemID string
-	// generations lists every string AcceleratorGen (see util.go) can return
+	// generations lists every string AcceleratorGen (see topology.go) can return
 	// for a chip of this family. More than one when the same silicon takes
 	// more than one form factor the PCI id cannot tell apart, e.g. v4 and
 	// v4lite, or v5lite (v5e) and v5litepod: tpuGenerationFromPCIIDs then
-	// resolves to the first, which completeLabelsFromHardware (util.go) only
+	// resolves to the first, which completeLabelsFromHardware (labels.go) only
 	// uses to double check a label another source already provided, never to
 	// pick between the two on its own.
 	generations []string
@@ -91,7 +91,7 @@ type tpuGenerationFamily struct {
 // tpuGenerationFamilies is the single source of truth for the TPU generations
 // this driver knows: it both tells hardware detection how to recognize a
 // generation from its PCI ids (tpuGenerationFromPCIIDs) and tells
-// AcceleratorGen (util.go) which generation strings are valid
+// AcceleratorGen (topology.go) which generation strings are valid
 // (isValidTPUGeneration), so a new generation only has to be added here.
 //
 // To add one: find its PCI device id under
@@ -109,7 +109,7 @@ var tpuGenerationFamilies = []tpuGenerationFamily{
 }
 
 // isValidTPUGeneration reports whether v is a generation AcceleratorGen (see
-// util.go) can return, i.e. one listed in tpuGenerationFamilies.
+// topology.go) can return, i.e. one listed in tpuGenerationFamilies.
 func isValidTPUGeneration(v string) bool {
 	for _, family := range tpuGenerationFamilies {
 		for _, generation := range family.generations {
@@ -123,7 +123,7 @@ func isValidTPUGeneration(v string) bool {
 
 // tpuGenerationFromPCIIDs returns the TPU generation matching the PCI device
 // id and subsystem id of a Google TPU chip, in the vocabulary AcceleratorGen
-// (see util.go) uses, or false if this driver does not recognize the ids yet.
+// (see topology.go) uses, or false if this driver does not recognize the ids yet.
 // A false here does not mean the device is not a TPU, see
 // knownNonTPUGoogleDeviceIDs for the devices this driver knows are not.
 func tpuGenerationFromPCIIDs(device, subsystem string) (string, bool) {
@@ -226,7 +226,7 @@ func countVfioTPUDevices(root string) (int, string) {
 // with Google's vendor id that is not in knownNonTPUGoogleDeviceIDs is assumed
 // to be a TPU of an unrecognized generation rather than ignored, so that a
 // chip this driver predates is still counted; completeLabelsFromHardware (see
-// util.go) then falls back to the usual sources for its accelerator string.
+// labels.go) then falls back to the usual sources for its accelerator string.
 func tpuGenerationOfIOMMUGroup(root, group string) (string, bool) {
 	devices, err := os.ReadDir(filepath.Join(root, iommuGroupsPath, group, "devices"))
 	if err != nil {
