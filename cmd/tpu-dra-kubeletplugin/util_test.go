@@ -615,6 +615,22 @@ func TestIsSingleHostNode(t *testing.T) {
 			want: true,
 		},
 		{
+			// A multi-host tpu-env without TOPOLOGY gets its topology from
+			// HOST_BOUNDS x CHIPS_PER_HOST_BOUNDS, so the hardware does not
+			// guess a single-host one.
+			name: "topology derived from tpu-env bounds stays multi-host",
+			labels: func() map[string]string {
+				labels := mapTpuEnvToLabels(map[string]string{
+					"ACCELERATOR_TYPE":      "v5p-16",
+					"HOST_BOUNDS":           "1,2,1",
+					"CHIPS_PER_HOST_BOUNDS": "2,2,1",
+				})
+				completeLabelsFromHardware(labels, &tpuHardware{chipCount: 4})
+				return labels
+			}(),
+			want: false,
+		},
+		{
 			name: "unparsable topology is treated as multi-host",
 			labels: map[string]string{
 				AcceleratorLabel:      "tpu-v4-podslice",
@@ -745,6 +761,24 @@ func TestGetTPUNodeLabelsFromSources(t *testing.T) {
 				AcceleratorLabel:      "tpu-v6e-slice",
 				AcceleratorCountLabel: "4",
 				TopologyLabel:         "2x2",
+			},
+		},
+		{
+			name: "tpu-env without bounds takes chip count and topology from 8 chips of hardware",
+			sources: []tpuLabelSource{
+				{
+					name: "tpu-env",
+					get: func(context.Context) (map[string]string, error) {
+						return mapTpuEnvToLabels(map[string]string{"ACCELERATOR_TYPE": "v6e-8"}), nil
+					},
+				},
+			},
+			hardware: &tpuHardware{devDirectory: "/dev", chipCount: 8},
+			want: map[string]string{
+				AcceleratorLabel:      "tpu-v6e-slice",
+				AcceleratorCountLabel: "8",
+				TopologyLabel:         "2x4",
+				ICIResiliency:         "",
 			},
 		},
 		{
@@ -1083,12 +1117,12 @@ func TestMapTpuEnvToLabels(t *testing.T) {
 			},
 		},
 		{
-			name:   "TYPE fallback and default chip/topology",
+			name:   "TYPE fallback leaves absent chip count and topology empty",
 			envMap: map[string]string{"TYPE": "v5litepod-8"},
 			want: map[string]string{
 				AcceleratorLabel:      "tpu-v5-lite-podslice",
-				AcceleratorCountLabel: "4",
-				TopologyLabel:         "2x2",
+				AcceleratorCountLabel: "",
+				TopologyLabel:         "",
 				ICIResiliency:         "",
 			},
 		},
@@ -1097,8 +1131,8 @@ func TestMapTpuEnvToLabels(t *testing.T) {
 			envMap: map[string]string{"ACCELERATOR_TYPE": "v5lite-8"},
 			want: map[string]string{
 				AcceleratorLabel:      "tpu-v5-lite-device",
-				AcceleratorCountLabel: "4",
-				TopologyLabel:         "2x2",
+				AcceleratorCountLabel: "",
+				TopologyLabel:         "",
 				ICIResiliency:         "",
 			},
 		},
@@ -1107,8 +1141,8 @@ func TestMapTpuEnvToLabels(t *testing.T) {
 			envMap: map[string]string{"ACCELERATOR_TYPE": "v5p-16"},
 			want: map[string]string{
 				AcceleratorLabel:      "tpu-v5p-slice",
-				AcceleratorCountLabel: "4",
-				TopologyLabel:         "2x2",
+				AcceleratorCountLabel: "",
+				TopologyLabel:         "",
 				ICIResiliency:         "",
 			},
 		},
@@ -1117,8 +1151,8 @@ func TestMapTpuEnvToLabels(t *testing.T) {
 			envMap: map[string]string{"ACCELERATOR_TYPE": "v4-8"},
 			want: map[string]string{
 				AcceleratorLabel:      "tpu-v4-podslice",
-				AcceleratorCountLabel: "4",
-				TopologyLabel:         "2x2",
+				AcceleratorCountLabel: "",
+				TopologyLabel:         "",
 				ICIResiliency:         "",
 			},
 		},
@@ -1127,8 +1161,8 @@ func TestMapTpuEnvToLabels(t *testing.T) {
 			envMap: map[string]string{"ACCELERATOR_TYPE": "v3-8"},
 			want: map[string]string{
 				AcceleratorLabel:      "tpu-v3-device",
-				AcceleratorCountLabel: "4",
-				TopologyLabel:         "2x2",
+				AcceleratorCountLabel: "",
+				TopologyLabel:         "",
 				ICIResiliency:         "",
 			},
 		},
@@ -1137,8 +1171,64 @@ func TestMapTpuEnvToLabels(t *testing.T) {
 			envMap: map[string]string{"ACCELERATOR_TYPE": "V9-Custom"},
 			want: map[string]string{
 				AcceleratorLabel:      "v9-custom",
+				AcceleratorCountLabel: "",
+				TopologyLabel:         "",
+				ICIResiliency:         "",
+			},
+		},
+		{
+			name: "malformed bounds entry leaves chip count empty",
+			envMap: map[string]string{
+				"ACCELERATOR_TYPE":      "v5litepod-8",
+				"CHIPS_PER_HOST_BOUNDS": "2,x,1",
+				"HOST_BOUNDS":           "1,1,1",
+			},
+			want: map[string]string{
+				AcceleratorLabel:      "tpu-v5-lite-podslice",
+				AcceleratorCountLabel: "",
+				TopologyLabel:         "",
+				ICIResiliency:         "",
+			},
+		},
+		{
+			name: "8-chip bounds",
+			envMap: map[string]string{
+				"ACCELERATOR_TYPE":      "v6e-8",
+				"CHIPS_PER_HOST_BOUNDS": "2,4,1",
+				"TOPOLOGY":              "2x4",
+			},
+			want: map[string]string{
+				AcceleratorLabel:      "tpu-v6e-slice",
+				AcceleratorCountLabel: "8",
+				TopologyLabel:         "2x4",
+				ICIResiliency:         "",
+			},
+		},
+		{
+			name: "topology derived from host and chip bounds",
+			envMap: map[string]string{
+				"ACCELERATOR_TYPE":      "v5p-16",
+				"HOST_BOUNDS":           "1,2,1",
+				"CHIPS_PER_HOST_BOUNDS": "2,2,1",
+			},
+			want: map[string]string{
+				AcceleratorLabel:      "tpu-v5p-slice",
 				AcceleratorCountLabel: "4",
-				TopologyLabel:         "2x2",
+				TopologyLabel:         "2x4",
+				ICIResiliency:         "",
+			},
+		},
+		{
+			name: "host bounds with a different number of dimensions are ignored",
+			envMap: map[string]string{
+				"ACCELERATOR_TYPE":      "v5p-16",
+				"HOST_BOUNDS":           "1,2",
+				"CHIPS_PER_HOST_BOUNDS": "2,2,1",
+			},
+			want: map[string]string{
+				AcceleratorLabel:      "tpu-v5p-slice",
+				AcceleratorCountLabel: "4",
+				TopologyLabel:         "",
 				ICIResiliency:         "",
 			},
 		},

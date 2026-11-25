@@ -663,24 +663,42 @@ func mapTpuEnvToLabels(envMap map[string]string) map[string]string {
 		accelerator = accelTypeLower // fallback
 	}
 
-	// Determine chip count from CHIPS_PER_HOST_BOUNDS product
-	chipCount := "4" // default fallback
-	if chipsBounds, exists := envMap["CHIPS_PER_HOST_BOUNDS"]; exists {
-		parts := strings.Split(chipsBounds, ",")
+	// Chip count is the product of CHIPS_PER_HOST_BOUNDS. Without a valid
+	// value it stays empty, so it is filled from the hardware instead.
+	chipsPerHost, chipsOK := parseTpuEnvBounds(envMap["CHIPS_PER_HOST_BOUNDS"])
+	if !chipsOK && envMap["CHIPS_PER_HOST_BOUNDS"] != "" {
+		klog.V(2).Infof("Ignoring unparsable tpu-env CHIPS_PER_HOST_BOUNDS=%q", envMap["CHIPS_PER_HOST_BOUNDS"])
+	}
+	chipCount := ""
+	if chipsOK {
 		product := 1
-		for _, part := range parts {
-			val, err := strconv.Atoi(strings.TrimSpace(part))
-			if err == nil {
-				product *= val
-			}
+		for _, n := range chipsPerHost {
+			product *= n
 		}
 		chipCount = strconv.Itoa(product)
 	}
 
-	// Determine topology
+	// Without TOPOLOGY, derive the slice topology from HOST_BOUNDS times
+	// CHIPS_PER_HOST_BOUNDS. Otherwise it stays empty: a single-host topology
+	// is filled from the hardware, and a multi-host node is not mistaken for
+	// a single-host one.
 	topology := envMap["TOPOLOGY"]
-	if topology == "" {
-		topology = "2x2" // default fallback
+	if topology == "" && chipsOK {
+		if hostBounds, ok := parseTpuEnvBounds(envMap["HOST_BOUNDS"]); ok && len(hostBounds) == len(chipsPerHost) {
+			dims := make([]int, len(hostBounds))
+			for i := range hostBounds {
+				dims[i] = hostBounds[i] * chipsPerHost[i]
+			}
+			// Trailing dimensions of a single chip are implicit, 2x4x1 is written 2x4.
+			for len(dims) > 2 && dims[len(dims)-1] == 1 {
+				dims = dims[:len(dims)-1]
+			}
+			parts := make([]string, 0, len(dims))
+			for _, dim := range dims {
+				parts = append(parts, strconv.Itoa(dim))
+			}
+			topology = strings.Join(parts, "x")
+		}
 	}
 
 	return map[string]string{
@@ -689,6 +707,25 @@ func mapTpuEnvToLabels(envMap map[string]string) map[string]string {
 		TopologyLabel:         topology,
 		ICIResiliency:         envMap["ENABLE_ICI_RESILIENCY"],
 	}
+}
+
+// parseTpuEnvBounds parses a comma-separated tpu-env bounds value such as
+// "2,2,1". It reports false when the value is empty or any entry is not a
+// positive integer.
+func parseTpuEnvBounds(value string) ([]int, bool) {
+	if value == "" {
+		return nil, false
+	}
+	parts := strings.Split(value, ",")
+	bounds := make([]int, 0, len(parts))
+	for _, part := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || n <= 0 {
+			return nil, false
+		}
+		bounds = append(bounds, n)
+	}
+	return bounds, true
 }
 
 // getNodeLabelsFromMetadata queries GCE MDS for `kube-labels` or falls back to `tpu-env` using the official library.
