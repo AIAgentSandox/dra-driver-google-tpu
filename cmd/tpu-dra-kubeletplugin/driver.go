@@ -17,8 +17,10 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -145,22 +147,36 @@ func NewDriver(ctx context.Context,
 	return driver, nil
 }
 
-func (d *driver) GatherStateAndPublish(ctx context.Context) error {
-	// Read the DeviceState and build a new resourcev1.ResourceSlice
-	var resourceSlice resourceslice.Slice
-	func() {
-		d.deviceState.Lock()
-		defer d.deviceState.Unlock()
+// buildSlice reads the DeviceState and builds the slice to publish from its
+// allocatable devices. Devices are sorted by name so the published order is
+// stable across publishes instead of following map iteration order.
+func (d *driver) buildSlice() resourceslice.Slice {
+	d.deviceState.Lock()
+	defer d.deviceState.Unlock()
 
-		for _, device := range d.deviceState.allocatable {
-			if device.allocatable {
-				klog.Info("Appending Device", device)
-				dev := device.GetDevice()
-				applyConsumableShares(&dev, d.sharesPolicy)
-				resourceSlice.Devices = append(resourceSlice.Devices, dev)
-			}
+	var resourceSlice resourceslice.Slice
+	for _, device := range d.deviceState.allocatable {
+		if device.allocatable {
+			dev := device.GetDevice()
+			applyConsumableShares(&dev, d.sharesPolicy)
+			resourceSlice.Devices = append(resourceSlice.Devices, dev)
 		}
-	}()
+	}
+	slices.SortFunc(resourceSlice.Devices, func(a, b resourceapi.Device) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	names := make([]string, 0, len(resourceSlice.Devices))
+	for _, dev := range resourceSlice.Devices {
+		names = append(names, dev.Name)
+	}
+	klog.V(4).Info("Publishing devices", "devices", names)
+
+	return resourceSlice
+}
+
+func (d *driver) GatherStateAndPublish(ctx context.Context) error {
+	resourceSlice := d.buildSlice()
 
 	resources := resourceslice.DriverResources{
 		Pools: map[string]resourceslice.Pool{

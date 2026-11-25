@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	resourceapi "k8s.io/api/resource/v1"
@@ -130,5 +131,34 @@ func TestShutdownNilReceiver(t *testing.T) {
 	var d *driver
 	if err := d.Shutdown(context.Background()); err != nil {
 		t.Errorf("Shutdown on nil driver: %v", err)
+	}
+}
+
+func TestBuildSliceSortsDevicesByName(t *testing.T) {
+	d := &driver{
+		deviceState: &DeviceState{
+			allocatable: AllocatableDevices{
+				"tpu-3": &AllocatableDevice{name: "tpu-3", index: 3, allocatable: true},
+				"tpu-0": &AllocatableDevice{name: "tpu-0", index: 0, allocatable: true},
+				"tpu-2": &AllocatableDevice{name: "tpu-2", index: 2, allocatable: false},
+				"tpu-1": &AllocatableDevice{name: "tpu-1", index: 1, allocatable: true},
+				"tpu-5": &AllocatableDevice{name: "tpu-5", index: 5, allocatable: true},
+				"tpu-4": &AllocatableDevice{name: "tpu-4", index: 4, allocatable: true},
+			},
+		},
+	}
+
+	want := []string{"tpu-0", "tpu-1", "tpu-3", "tpu-4", "tpu-5"}
+	// Map iteration order varies between ranges, so build the slice several
+	// times; every build must come back in the same sorted order.
+	for i := range 10 {
+		slice := d.buildSlice()
+		got := make([]string, 0, len(slice.Devices))
+		for _, dev := range slice.Devices {
+			got = append(got, dev.Name)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("build %d: device names = %v, want %v", i, got, want)
+		}
 	}
 }
