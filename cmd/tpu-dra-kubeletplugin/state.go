@@ -70,7 +70,7 @@ func (s *DeviceState) logDir() string {
 func NewDeviceState(config *Config, nodeLabels map[string]string, devDir string, publishChan chan interface{}, sharesPolicy consumableSharesPolicy) (*DeviceState, error) {
 	klog.Info("Creating new DeviceState")
 
-	tm, err := NewTPUManager(nodeLabels, devDir)
+	tm, err := NewTPUManager(config.flags.nodeName, nodeLabels, devDir)
 	if err != nil {
 		return nil, fmt.Errorf("error creating the TPU manager: %w", err)
 	}

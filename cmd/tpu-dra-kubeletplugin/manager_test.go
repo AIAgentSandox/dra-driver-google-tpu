@@ -39,8 +39,8 @@ func fakeDevDir(t *testing.T, names ...string) string {
 
 func enumerate(t *testing.T, nodeName, tpuGen string, devNames ...string) AllocatableDevices {
 	t.Helper()
-	t.Setenv("NODE_NAME", nodeName)
 	tm := &tpuManager{
+		nodeName:     nodeName,
 		tpuGen:       tpuGen,
 		DevDirectory: fakeDevDir(t, devNames...),
 		tpuChipCount: len(devNames),
@@ -90,6 +90,25 @@ func TestDeviceUUIDsDifferAcrossNodes(t *testing.T) {
 		if b[name].UUID == d.UUID {
 			t.Errorf("device %s: same uuid %s on different nodes", name, d.UUID)
 		}
+	}
+}
+
+// The node name comes from the --node-name flag, not from $NODE_NAME, so a
+// deployment that passes only the flag still gets UUIDs unique per node. The
+// pinned value is what the env-var-based derivation produced for node-a, so
+// existing deployments keep their UUIDs.
+func TestDeviceUUIDsFromNodeNameFlag(t *testing.T) {
+	t.Setenv("NODE_NAME", "")
+	names := []string{"accel0", "accel1"}
+	a := enumerate(t, "node-a", "v4", names...)
+	b := enumerate(t, "node-b", "v4", names...)
+	for name, d := range a {
+		if b[name].UUID == d.UUID {
+			t.Errorf("device %s: same uuid %s on different nodes with NODE_NAME unset", name, d.UUID)
+		}
+	}
+	if got, want := a["accel0"].UUID, "tpu-32b96968-f4ca-04d0-7ac0-d1bd657d66fe"; got != want {
+		t.Errorf("accel0 on node-a: uuid = %s, want %s", got, want)
 	}
 }
 

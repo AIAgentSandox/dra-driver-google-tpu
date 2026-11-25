@@ -61,6 +61,7 @@ type AllocatableDevice struct {
 
 // tpuManager manages google tpu devices.
 type tpuManager struct {
+	nodeName     string
 	DevDirectory string
 	tpuGen       string
 	devices      AllocatableDevices
@@ -71,7 +72,7 @@ type tpuManager struct {
 	tpuLogDir    string
 }
 
-func NewTPUManager(nodeLabels map[string]string, devDirectory string) (*tpuManager, error) {
+func NewTPUManager(nodeName string, nodeLabels map[string]string, devDirectory string) (*tpuManager, error) {
 	accelerator := nodeLabels[AcceleratorLabel]
 	acceleratorCount := nodeLabels[AcceleratorCountLabel]
 	topology := nodeLabels[TopologyLabel]
@@ -111,6 +112,7 @@ func NewTPUManager(nodeLabels map[string]string, devDirectory string) (*tpuManag
 	}
 
 	return &tpuManager{
+		nodeName:     nodeName,
 		tpuGen:       tpuGen,
 		DevDirectory: devDirectory,
 		tpuChipCount: chipCount,
@@ -155,7 +157,7 @@ func (d *AllocatableDevice) GetDevice() resourceapi.Device {
 }
 
 func (tm *tpuManager) getTpuInfo(i int, f fs.DirEntry) *AllocatableDevice {
-	uuid := tm.generateUUIDs(deviceUUIDSeed(os.Getenv("NODE_NAME"), f.Name()))
+	uuid := tm.generateUUIDs(deviceUUIDSeed(tm.nodeName, f.Name()))
 	allocatableDevice := &AllocatableDevice{
 		UUID:  uuid,
 		name:  f.Name(),

@@ -18,7 +18,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"k8s.io/klog/v2"
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
@@ -35,7 +34,8 @@ const (
 )
 
 type CDIHandler struct {
-	cache *cdiapi.Cache
+	cache    *cdiapi.Cache
+	nodeName string
 }
 
 func NewCDIHandler(config *Config) (*CDIHandler, error) {
@@ -47,7 +47,8 @@ func NewCDIHandler(config *Config) (*CDIHandler, error) {
 		return nil, fmt.Errorf("unable to create a new CDI cache: %w", err)
 	}
 	handler := &CDIHandler{
-		cache: cache,
+		cache:    cache,
+		nodeName: config.flags.nodeName,
 	}
 
 	return handler, nil
@@ -55,7 +56,7 @@ func NewCDIHandler(config *Config) (*CDIHandler, error) {
 
 func (cdi *CDIHandler) CreateCommonSpecFile(envs map[string]string, commonMounts []*cdispec.Mount) error {
 	commonEnv := []string{
-		fmt.Sprintf("KUBERNETES_NODE_NAME=%s", os.Getenv("NODE_NAME")),
+		fmt.Sprintf("KUBERNETES_NODE_NAME=%s", cdi.nodeName),
 		fmt.Sprintf("DRA_RESOURCE_DRIVER_NAME=%s", DriverName),
 	}
 	for env, value := range envs {
