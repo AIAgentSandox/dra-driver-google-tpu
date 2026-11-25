@@ -95,38 +95,16 @@ var (
 		{FilePath: "proc/sys/net/ipv4/tcp_mtu_probing", Value: "0"},
 		{FilePath: "proc/sys/net/core/optmem_max", Value: "131072"},
 	}
-
-	validSubsliceTopologySet = map[string]bool{
-		"1x1":   true,
-		"2x2":   true,
-		"2x4":   true,
-		"4x4":   true,
-		"4x8":   true,
-		"8x8":   true,
-		"8x16":  true,
-		"16x16": true,
-		"4x4x4": true,
-		"2x4x4": true,
-		"2x2x4": true,
-		"2x2x2": true,
-		"2x2x1": true,
-	}
 )
 
 // InitEnvOptions contains fields that are required to initiliazing the
 // environment variables used by tpu-device-plugin.
 type InitEnvOptions struct {
-	Accelerator           string
-	Topology              string
-	EnableICIResiliency   string
-	ChipCount             int
-	AcceleratorCount      int
-	RequestedChipCount    int
-	SubSliceTopology      string
-	IsPriviledged         bool
-	VisibleChipIds        []string
-	EnableDeviceSpreading bool
-	NumaNodeIds           []string
+	Accelerator         string
+	Topology            string
+	EnableICIResiliency string
+	ChipCount           int
+	RequestedChipCount  int
 }
 
 // SystemSetting contains filePath and its setting value.
@@ -145,38 +123,6 @@ func RemoveDirContents(dirPath string) error {
 	return nil
 }
 
-func IsValidSubSliceTopology(topology string, subSliceTopology string) (bool, error) {
-	// subSliceTopology not specified
-	if subSliceTopology == "" {
-		return false, nil
-	}
-	// subSliceTopology not valid
-	if _, ok := validSubsliceTopologySet[subSliceTopology]; !ok {
-		return false, fmt.Errorf("invalid value for subSliceTopology: %s", subSliceTopology)
-	}
-
-	// Normalize node topology
-	dims, err := getTopologyDims(topology)
-	if err != nil {
-		return false, fmt.Errorf("invalid node topology %s: %w", topology, err)
-	}
-
-	// Normalize subslice topology
-	subDims, err := getTopologyDims(subSliceTopology)
-	if err != nil {
-		return false, fmt.Errorf("invalid value for subSliceTopology %s: %w", subSliceTopology, err)
-	}
-
-	for i := range dims {
-		d1 := dims[i]    // From control plane (normalized)
-		d2 := subDims[i] // From user input (normalized)
-		if d2 > d1 {
-			return false, fmt.Errorf("invalid value for subSliceTopology: %s, subSliceTopology shouldn't be larger than topology", subSliceTopology)
-		}
-	}
-	return true, nil
-}
-
 // InitEnvs initializes a map of environment variables containing required
 // metadata values for TPU workloads to run.
 func InitEnvs(opts InitEnvOptions) (map[string]string, error) {
@@ -185,16 +131,7 @@ func InitEnvs(opts InitEnvOptions) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var topology string
-	valid, err := IsValidSubSliceTopology(opts.Topology, opts.SubSliceTopology)
-	if valid {
-		topology = opts.SubSliceTopology
-	} else {
-		topology = opts.Topology
-	}
-	if err != nil {
-		klog.Errorf("Invalid subSliceTopology: %v, setting the topology env as %s.", err, topology)
-	}
+	topology := opts.Topology
 
 	var topologyDims []int64
 	var acceleratorTypeConverted string
@@ -221,14 +158,6 @@ func InitEnvs(opts InitEnvOptions) (map[string]string, error) {
 		klog.Infof("$NODE_IP is not set in env")
 	} else {
 		envs["VBAR_CONTROL_SERVICE_URL"] = nodeIp + ":8353"
-	}
-
-	if opts.EnableDeviceSpreading && opts.IsPriviledged && len(opts.VisibleChipIds) > 0 {
-		envs["TPU_VISIBLE_CHIPS"] = strings.Join(opts.VisibleChipIds, ",")
-	}
-
-	if len(opts.NumaNodeIds) > 0 {
-		envs["WORKLOAD_NIC_PREFERRED_NUMA"] = strings.Join(opts.NumaNodeIds, ",")
 	}
 
 	// Set metadata specific to TPU podslices, TPU slice or TPU devices.

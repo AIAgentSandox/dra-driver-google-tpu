@@ -131,74 +131,6 @@ func TestChipCount(t *testing.T) {
 	}
 }
 
-func TestIsValidSubSliceTopology(t *testing.T) {
-	tests := []struct {
-		name             string
-		topology         string
-		subSliceTopology string
-		want             bool
-		wantErr          bool
-	}{
-		{
-			name:             "valid matching 3D subslice",
-			topology:         "4x4x4",
-			subSliceTopology: "2x2x2",
-			want:             true,
-			wantErr:          false,
-		},
-		{
-			name:             "valid matching 2D subslice",
-			topology:         "4x4",
-			subSliceTopology: "2x2",
-			want:             true,
-			wantErr:          false,
-		},
-		{
-			name:             "equivalent 2D topology and 3D subslice",
-			topology:         "2x2",
-			subSliceTopology: "2x2x1",
-			want:             true,
-			wantErr:          false,
-		},
-		{
-			name:             "equivalent 3D topology and 2D subslice",
-			topology:         "2x2x1",
-			subSliceTopology: "2x2",
-			want:             true,
-			wantErr:          false,
-		},
-		{
-			name:             "subslice topology larger than topology",
-			topology:         "2x2x2",
-			subSliceTopology: "4x4x4",
-			want:             false,
-			wantErr:          true,
-		},
-		{
-			name:             "subslice topology larger than topology after normalization",
-			topology:         "4x4",
-			subSliceTopology: "2x2x2",
-			want:             false,
-			wantErr:          true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := IsValidSubSliceTopology(tt.topology, tt.subSliceTopology)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("IsValidSubSliceTopology() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr {
-				if got != tt.want {
-					t.Errorf("IsValidSubSliceTopology() got = %v, want %v", got, tt.want)
-				}
-			}
-		})
-	}
-}
-
 func TestAcceleratorGen(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -899,34 +831,27 @@ func TestInitEnvs(t *testing.T) {
 		{
 			name: "single-host v6e slice sets worker and slice envs",
 			opts: InitEnvOptions{
-				Accelerator:           "tpu-v6e-slice",
-				Topology:              "2x2",
-				ChipCount:             4,
-				AcceleratorCount:      4,
-				RequestedChipCount:    4,
-				EnableDeviceSpreading: true,
-				IsPriviledged:         true,
-				VisibleChipIds:        []string{"0", "1", "2", "3"},
-				NumaNodeIds:           []string{"0"},
+				Accelerator:        "tpu-v6e-slice",
+				Topology:           "2x2",
+				ChipCount:          4,
+				RequestedChipCount: 4,
 			},
 			nodeIP: "10.0.0.1",
 			want: map[string]string{
-				"TPU_SKIP_MDS_QUERY":          "true",
-				"TPU_TOPOLOGY":                "2x2",
-				"TPU_ACCELERATOR_TYPE":        "v6e-4",
-				"VBAR_CONTROL_SERVICE_URL":    "10.0.0.1:8353",
-				"TPU_VISIBLE_CHIPS":           "0,1,2,3",
-				"WORKLOAD_NIC_PREFERRED_NUMA": "0",
-				"TPU_TOPOLOGY_ALT":            "false",
-				"ALT":                         "false",
-				"TPU_TOPOLOGY_WRAP":           "false,false,false",
-				"WRAP":                        "false,false,false",
-				"HOST_BOUNDS":                 "1,1,1",
-				"TPU_HOST_BOUNDS":             "1,1,1",
-				"CHIPS_PER_HOST_BOUNDS":       "2,2,1",
-				"TPU_CHIPS_PER_HOST_BOUNDS":   "2,2,1",
-				"TPU_WORKER_ID":               "0",
-				"TPU_WORKER_HOSTNAMES":        "localhost",
+				"TPU_SKIP_MDS_QUERY":        "true",
+				"TPU_TOPOLOGY":              "2x2",
+				"TPU_ACCELERATOR_TYPE":      "v6e-4",
+				"VBAR_CONTROL_SERVICE_URL":  "10.0.0.1:8353",
+				"TPU_TOPOLOGY_ALT":          "false",
+				"ALT":                       "false",
+				"TPU_TOPOLOGY_WRAP":         "false,false,false",
+				"WRAP":                      "false,false,false",
+				"HOST_BOUNDS":               "1,1,1",
+				"TPU_HOST_BOUNDS":           "1,1,1",
+				"CHIPS_PER_HOST_BOUNDS":     "2,2,1",
+				"TPU_CHIPS_PER_HOST_BOUNDS": "2,2,1",
+				"TPU_WORKER_ID":             "0",
+				"TPU_WORKER_HOSTNAMES":      "localhost",
 			},
 		},
 		{
@@ -935,7 +860,6 @@ func TestInitEnvs(t *testing.T) {
 				Accelerator:         "tpu-v4-podslice",
 				Topology:            "4x4x4",
 				ChipCount:           4,
-				AcceleratorCount:    4,
 				RequestedChipCount:  4,
 				EnableICIResiliency: "true",
 			},

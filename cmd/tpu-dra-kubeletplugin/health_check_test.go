@@ -45,19 +45,11 @@ func TestDeviceExists(t *testing.T) {
 	}
 	hc := NewTPUHealthChecker(AllocatableDevices{}, nil, dir, "v6e", nil)
 
-	present, err := hc.deviceExists("vfio0")
-	if err != nil {
-		t.Fatalf("deviceExists(present): %v", err)
-	}
-	if !present {
+	if !hc.deviceExists("vfio0") {
 		t.Error("expected existing device to report present")
 	}
 
-	absent, err := hc.deviceExists("missing")
-	if err != nil {
-		t.Fatalf("deviceExists(absent): %v", err)
-	}
-	if absent {
+	if hc.deviceExists("missing") {
 		t.Error("expected missing device to report absent")
 	}
 }

@@ -225,10 +225,7 @@ func (s *DeviceState) prepareDevices(claim *resourceapi.ResourceClaim) (Prepared
 	// Normalize, validate, and apply all configs associated wi th devices that
 	// need to be prepared. Track container edits generated from applying the
 	// config to the set of device allocation results.
-	perDeviceCDIContainerEdits, err := s.getDeviceContainerEdits(results)
-	if err != nil {
-		klog.Error(err)
-	}
+	perDeviceCDIContainerEdits := s.getDeviceContainerEdits(results)
 	// Walk through each config and its associated device allocation results
 	// and construct the list of prepared devices to return.
 	var preparedDevices PreparedDevices
@@ -290,7 +287,7 @@ func hasOtherPreparedClaims(checkpoint *Checkpoint, claimUID string) bool {
 	return false
 }
 
-func (s *DeviceState) getDeviceContainerEdits(results []resourceapi.DeviceRequestAllocationResult) (PerDeviceCDIContainerEdits, error) {
+func (s *DeviceState) getDeviceContainerEdits(results []resourceapi.DeviceRequestAllocationResult) PerDeviceCDIContainerEdits {
 	perDeviceEdits := make(PerDeviceCDIContainerEdits)
 
 	for _, result := range results {
@@ -302,7 +299,7 @@ func (s *DeviceState) getDeviceContainerEdits(results []resourceapi.DeviceReques
 		perDeviceEdits[result.Device] = &cdiapi.ContainerEdits{ContainerEdits: edits}
 	}
 
-	return perDeviceEdits, nil
+	return perDeviceEdits
 }
 
 func (s *DeviceState) UpdateHealth(deviceName string, currentHealth bool) error {

@@ -29,13 +29,15 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v2"
-	"k8s.io/apimachinery/pkg/util/sets"
 	coreclientset "k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/klog/v2"
 
 	pkgflags "sigs.k8s.io/dra-driver-google-tpu/pkg/flags"
 )
+
+// version is set at build time with -ldflags "-X main.version=...".
+var version = "unknown"
 
 const (
 	DriverName = "tpu.google.com"
@@ -50,9 +52,8 @@ const (
 type Flags struct {
 	kubeClientConfig pkgflags.KubeClientConfig
 
-	nodeName      string
-	cdiRoot       string
-	deviceClasses sets.Set[string]
+	nodeName string
+	cdiRoot  string
 
 	kubeletRegistrarDirectoryPath string
 	kubeletPluginsDirectoryPath   string
@@ -106,8 +107,8 @@ func newApp() *cli.App {
 		},
 		&cli.StringSliceFlag{
 			Name:    "device-classes",
-			Usage:   "The supported set of DRA device classes",
-			Value:   cli.NewStringSlice("tpu"),
+			Usage:   "Deprecated: ignored",
+			Hidden:  true,
 			EnvVars: []string{"DEVICE_CLASSES"},
 		},
 		&cli.StringFlag{
@@ -189,7 +190,10 @@ func newApp() *cli.App {
 			if err := validateConsumableShares(flags.consumableShares); err != nil {
 				return err
 			}
-			flags.deviceClasses = sets.New[string](c.StringSlice("device-classes")...)
+			klog.Infof("Starting %s kubelet plugin, version %s", DriverName, version)
+			if c.IsSet("device-classes") {
+				klog.Warning("--device-classes (DEVICE_CLASSES) is deprecated and ignored")
+			}
 			clientSets, err := flags.kubeClientConfig.NewClientSets()
 			if err != nil {
 				return fmt.Errorf("create client: %v", err)

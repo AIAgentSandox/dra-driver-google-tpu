@@ -9,8 +9,6 @@ selectorLabelsOverride: {}
 
 allowDefaultNamespace: false
 
-deviceClasses: ["tpu"]
-
 # Feature gates for the kubelet plugin, as a map of gate name to bool.
 # e.g. featureGates: { ConsumableShares: true }
 featureGates: {}

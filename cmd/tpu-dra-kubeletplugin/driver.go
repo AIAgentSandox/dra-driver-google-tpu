@@ -102,9 +102,7 @@ func NewDriver(ctx context.Context,
 	health := newHealthBroadcaster(state, config.flags.nodeName)
 
 	hc := NewTPUHealthChecker(state.allocatable, state, devDir, tpuGen, health)
-	if err = hc.Start(); err != nil {
-		return nil, fmt.Errorf("healthchecker failed to start")
-	}
+	hc.Start()
 
 	driver := &driver{
 		deviceState:   state,

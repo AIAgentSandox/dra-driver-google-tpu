@@ -147,16 +147,6 @@ func TestDeviceNodeContainerEdits(t *testing.T) {
 	}
 }
 
-func TestValidateTpuRequest(t *testing.T) {
-	tm := &tpuManager{tpuChipCount: 4}
-	if err := tm.ValidateTpuRequest([]string{"a", "b", "c", "d"}); err != nil {
-		t.Errorf("expected full-chip request to pass: %v", err)
-	}
-	if err := tm.ValidateTpuRequest([]string{"a", "b"}); err == nil {
-		t.Error("expected partial request to be rejected")
-	}
-}
-
 func TestEnumerateAllPossibleTpuDevices(t *testing.T) {
 	dir := t.TempDir()
 	// v4-style naming (accelN) is matched outside the vfio directory.

@@ -51,7 +51,6 @@ func tpuDeviceState(chipCount int, deviceNames ...string) *DeviceState {
 		allocatable: allocatable,
 		tm: &tpuManager{
 			DevDirectory: "/dev",
-			devices:      allocatable,
 			tpuChipCount: chipCount,
 		},
 	}

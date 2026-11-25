@@ -81,8 +81,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.hostIP
-        - name: DEVICE_CLASSES
-          value: {{ .Values.deviceClasses | join "," }}
         - name: TPU_ENV_FILE
           value: {{ .Values.kubeletPlugin.tpu.envFilePath | quote }}
         {{- with .Values.kubeletPlugin.tpu.accelerator }}

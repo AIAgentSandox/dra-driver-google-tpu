@@ -38,21 +38,18 @@ const (
 	defaultDeviceID         = "vfio"
 	// libtpuLogDir is the host path that libtpu writes its logs to. It is shared by
 	// every claim on the node and tailed by the log collector sidecar.
-	libtpuLogDir     = "/tmp/tpu_logs"
-	DevicePluginPath = "/var/lib/kubelet/plugins/tpu.google.com"
-	LogDir           = DevicePluginPath + "/logs"
+	libtpuLogDir = "/tmp/tpu_logs"
 )
 
 type AllocatableDevices map[string]*AllocatableDevice
 
 type AllocatableDevice struct {
-	UUID          string `json:"uuid"`
-	name          string
-	index         int
-	tpuGen        string
-	brand         string
-	driverVersion string
-	allocatable   bool
+	UUID        string `json:"uuid"`
+	name        string
+	index       int
+	tpuGen      string
+	brand       string
+	allocatable bool
 	// Properties of the TPU the chip belongs to, what a claim selects on.
 	accelerator string
 	chipCount   int
@@ -63,7 +60,6 @@ type AllocatableDevice struct {
 type tpuManager struct {
 	DevDirectory string
 	tpuGen       string
-	devices      AllocatableDevices
 	tpuChipCount int
 	nodeLabels   map[string]string
 	envs         map[string]string
@@ -95,7 +91,6 @@ func NewTPUManager(nodeLabels map[string]string, devDirectory string) (*tpuManag
 		Accelerator:         accelerator,
 		Topology:            topology,
 		ChipCount:           chipCount,
-		AcceleratorCount:    chipCount,
 		RequestedChipCount:  chipCount,
 		EnableICIResiliency: enableICIResiliency,
 	})
@@ -161,13 +156,12 @@ func (tm *tpuManager) getTpuInfo(i int, f fs.DirEntry) *AllocatableDevice {
 		name:  f.Name(),
 		index: i,
 		// memoryBytes:   memory.Total, Question?
-		tpuGen:        tm.tpuGen,
-		brand:         "Google",
-		driverVersion: "1.0.0",
-		allocatable:   true,
-		accelerator:   tm.nodeLabels[AcceleratorLabel],
-		chipCount:     tm.tpuChipCount,
-		topology:      tm.nodeLabels[TopologyLabel],
+		tpuGen:      tm.tpuGen,
+		brand:       "Google",
+		allocatable: true,
+		accelerator: tm.nodeLabels[AcceleratorLabel],
+		chipCount:   tm.tpuChipCount,
+		topology:    tm.nodeLabels[TopologyLabel],
 	}
 	return allocatableDevice
 }
@@ -204,7 +198,6 @@ func (tm *tpuManager) enumerateAllPossibleTpuDevices() (AllocatableDevices, erro
 		return nil, fmt.Errorf("found %d TPU devices in %s, the node is expected to have %d chips", num_devices, tm.DevDirectory, tm.tpuChipCount)
 	}
 	klog.Info("Number of devices discovered", num_devices)
-	tm.devices = allocatableDevices
 	return allocatableDevices, nil
 }
 
@@ -253,12 +246,4 @@ func (tm *tpuManager) DeviceNodeContainerEdits(deviceID string) []*cdispec.Devic
 		})
 	}
 	return deviceNodes
-}
-
-// Validate the container requesting for TPUs. Make sure partial TPU chips are not requested.
-func (tm *tpuManager) ValidateTpuRequest(requestDeviceIds []string) error {
-	if len(requestDeviceIds) != tm.tpuChipCount {
-		return fmt.Errorf("invalid TPU chip count request, you must request all %d chips on this node together", tm.tpuChipCount)
-	}
-	return nil
 }

@@ -69,7 +69,7 @@ func NewTPUHealthChecker(devices AllocatableDevices, state *DeviceState, devDire
 }
 
 // Start creates a goRoutine that monitors the devDir for changes.
-func (hc *TPUHealthChecker) Start() error {
+func (hc *TPUHealthChecker) Start() {
 	klog.Info("Starting TPU Health Checker")
 
 	for name, device := range hc.devices {
@@ -81,25 +81,17 @@ func (hc *TPUHealthChecker) Start() error {
 			klog.Errorf("TPUHealthChecker monitorDevDir error: %v", err)
 		}
 	}()
-
-	return nil
 }
 
-func (hc *TPUHealthChecker) deviceExists(deviceId string) (bool, error) {
-	deviceIDs := []string{deviceId}
-
-	for _, id := range deviceIDs {
-		if _, err := os.Stat(filepath.Join(hc.devDirectory, id)); err == nil {
-			continue
-		} else if os.IsNotExist(err) {
-			return false, nil
-		} else {
-			klog.Errorf("deviceExists check unexpected error: %v", err)
-			return false, nil
-		}
+func (hc *TPUHealthChecker) deviceExists(deviceId string) bool {
+	_, err := os.Stat(filepath.Join(hc.devDirectory, deviceId))
+	if err == nil {
+		return true
 	}
-
-	return true, nil
+	if !os.IsNotExist(err) {
+		klog.Errorf("deviceExists check unexpected error: %v", err)
+	}
+	return false
 }
 
 // monitorDevDir monitors the dev/ directory to see if all the TPU devices are present.
@@ -113,7 +105,7 @@ func (hc *TPUHealthChecker) monitorDevDir() error {
 			return nil
 		case <-ticker.C:
 			for id, d := range hc.devices {
-				val, _ := hc.deviceExists(id)
+				val := hc.deviceExists(id)
 				if val && !d.allocatable {
 					klog.Infof("Device %s is now healthy.", id)
 					d.allocatable = true
