@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -547,7 +548,7 @@ func newDeviceStateFixture(t *testing.T) (*Config, map[string]string, string) {
 func TestNewDeviceState(t *testing.T) {
 	config, labels, devDir := newDeviceStateFixture(t)
 
-	state, err := NewDeviceState(config, labels, devDir, make(chan interface{}, 1), consumableSharesPolicy{})
+	state, err := NewDeviceState(config, labels, devDir, make(chan struct{}, 1), consumableSharesPolicy{})
 	if err != nil {
 		t.Fatalf("NewDeviceState: %v", err)
 	}
@@ -577,7 +578,7 @@ func TestNewDeviceStateReusesExistingCheckpoint(t *testing.T) {
 	config, labels, devDir := newDeviceStateFixture(t)
 
 	// First call creates the checkpoint.
-	state, err := NewDeviceState(config, labels, devDir, make(chan interface{}, 1), consumableSharesPolicy{})
+	state, err := NewDeviceState(config, labels, devDir, make(chan struct{}, 1), consumableSharesPolicy{})
 	if err != nil {
 		t.Fatalf("NewDeviceState (first): %v", err)
 	}
@@ -590,7 +591,7 @@ func TestNewDeviceStateReusesExistingCheckpoint(t *testing.T) {
 	}
 
 	// Second call must take the reuse branch, not clobber the checkpoint.
-	if _, err = NewDeviceState(config, labels, devDir, make(chan interface{}, 1), consumableSharesPolicy{}); err != nil {
+	if _, err = NewDeviceState(config, labels, devDir, make(chan struct{}, 1), consumableSharesPolicy{}); err != nil {
 		t.Fatalf("NewDeviceState (reuse): %v", err)
 	}
 
@@ -619,7 +620,7 @@ func TestUpdateHealth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := tpuDeviceState(1, "tpu0")
-			s.publishchan = make(chan interface{}, 1)
+			s.publishchan = make(chan struct{}, 1)
 
 			err := s.UpdateHealth(tt.device, tt.newHealth)
 			if tt.wantErr {
@@ -644,5 +645,49 @@ func TestUpdateHealth(t *testing.T) {
 				t.Errorf("publish signal = %v, want %v", gotSignal, tt.wantSignal)
 			}
 		})
+	}
+}
+
+// UpdateHealth must not block when a republish signal is already pending and
+// nobody is reading: several health changes coalesce into one signal.
+func TestUpdateHealthCoalescesSignalsWithoutReader(t *testing.T) {
+	s := tpuDeviceState(2, "tpu0", "tpu1")
+	s.publishchan = make(chan struct{}, 1)
+
+	changes := []struct {
+		device  string
+		healthy bool
+	}{
+		{"tpu0", false},
+		{"tpu1", false},
+		{"tpu0", true},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		for _, c := range changes {
+			if err := s.UpdateHealth(c.device, c.healthy); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("UpdateHealth: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("UpdateHealth blocked on the publish channel with no reader")
+	}
+
+	if got := len(s.publishchan); got != 1 {
+		t.Errorf("buffered publish signals = %d, want 1", got)
+	}
+	if !s.allocatable["tpu0"].allocatable || s.allocatable["tpu1"].allocatable {
+		t.Errorf("health = tpu0:%v tpu1:%v, want tpu0:true tpu1:false",
+			s.allocatable["tpu0"].allocatable, s.allocatable["tpu1"].allocatable)
 	}
 }

@@ -52,7 +52,7 @@ type DeviceState struct {
 	allocatable       AllocatableDevices
 	checkpointManager checkpointmanager.CheckpointManager
 	tm                *tpuManager
-	publishchan       chan interface{}
+	publishchan       chan struct{}
 	sharesPolicy      consumableSharesPolicy
 	tpuLogDir         string
 }
@@ -67,7 +67,7 @@ func (s *DeviceState) logDir() string {
 	return libtpuLogDir
 }
 
-func NewDeviceState(config *Config, nodeLabels map[string]string, devDir string, publishChan chan interface{}, sharesPolicy consumableSharesPolicy) (*DeviceState, error) {
+func NewDeviceState(config *Config, nodeLabels map[string]string, devDir string, publishChan chan struct{}, sharesPolicy consumableSharesPolicy) (*DeviceState, error) {
 	klog.Info("Creating new DeviceState")
 
 	tm, err := NewTPUManager(nodeLabels, devDir)
@@ -340,9 +340,15 @@ func (s *DeviceState) UpdateHealth(deviceName string, currentHealth bool) error 
 	}
 
 	if changed {
-		klog.Infof("Sending update signal to publishchan for device %s", deviceName)
-		s.publishchan <- true
-		klog.Infof("Update signal sent successfully for device %s", deviceName)
+		// Never block here: the caller is the health checker, which must keep
+		// broadcasting the health heartbeat. A pending signal already covers
+		// this change, because republishing rebuilds the slice from current state.
+		select {
+		case s.publishchan <- struct{}{}:
+			klog.Infof("Queued republish signal for device %s health change", deviceName)
+		default:
+			klog.Infof("Republish already pending; coalesced health change for device %s", deviceName)
+		}
 	}
 
 	return nil

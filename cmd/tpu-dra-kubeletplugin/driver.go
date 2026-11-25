@@ -93,7 +93,7 @@ func NewDriver(ctx context.Context,
 			"will not co-schedule")
 	}
 
-	triggerPublishChan := make(chan interface{}, 1)
+	triggerPublishChan := make(chan struct{}, 1)
 	state, err := NewDeviceState(config, nodeLabels, devDir, triggerPublishChan, sharesPolicy)
 	if err != nil {
 		return nil, err
@@ -175,7 +175,7 @@ func (d *driver) GatherStateAndPublish(ctx context.Context) error {
 }
 
 // republishSlice waits for channel notification to trigger republishing of slice.
-func (d *driver) republishSlice(ctx context.Context, publishObjectChan <-chan interface{}) {
+func (d *driver) republishSlice(ctx context.Context, publishObjectChan <-chan struct{}) {
 	klog.Info("republish resource slices now ready.")
 	defer klog.Info("republish resource slices has terminated.")
 
