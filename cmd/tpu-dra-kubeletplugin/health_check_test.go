@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNewTPUHealthCheckerClonesDevices(t *testing.T) {
@@ -60,4 +61,50 @@ func TestDeviceExists(t *testing.T) {
 	if absent {
 		t.Error("expected missing device to report absent")
 	}
+}
+
+// stopWithin calls hc.Stop and fails the test if it does not return in time.
+func stopWithin(t *testing.T, hc *TPUHealthChecker) {
+	t.Helper()
+	returned := make(chan struct{})
+	go func() {
+		hc.Stop()
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return")
+	}
+}
+
+func TestHealthCheckerStopAfterStart(t *testing.T) {
+	hc := NewTPUHealthChecker(AllocatableDevices{}, nil, t.TempDir(), "v6e", nil)
+	if err := hc.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	stopWithin(t, hc)
+	select {
+	case <-hc.done:
+	default:
+		t.Error("expected the monitor goroutine to have exited after Stop")
+	}
+
+	// A second Stop must neither panic nor hang.
+	stopWithin(t, hc)
+}
+
+func TestHealthCheckerStopWithoutStart(t *testing.T) {
+	hc := NewTPUHealthChecker(AllocatableDevices{}, nil, t.TempDir(), "v6e", nil)
+	stopWithin(t, hc)
+}
+
+func TestHealthCheckerStopAfterMonitorExited(t *testing.T) {
+	hc := NewTPUHealthChecker(AllocatableDevices{}, nil, t.TempDir(), "v6e", nil)
+	// Simulate a monitor goroutine that already returned on its own.
+	hc.started.Store(true)
+	close(hc.done)
+
+	stopWithin(t, hc)
 }

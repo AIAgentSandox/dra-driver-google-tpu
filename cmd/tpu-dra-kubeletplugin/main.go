@@ -279,7 +279,10 @@ func StartPlugin(ctx context.Context, config *Config) error {
 		driver, err = NewDriver(ctx, config)
 	}
 
-	<-sigc
+	select {
+	case <-sigc:
+	case <-ctx.Done():
+	}
 
 	return nil
 }

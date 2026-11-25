@@ -19,6 +19,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	resourceapi "k8s.io/api/resource/v1"
@@ -41,8 +43,15 @@ type TPUHealthChecker struct {
 	devices      map[string]AllocatableDevice
 	devDirectory string
 	state        *DeviceState
-	stop         chan bool
 	tpuGen       string
+	// stop is closed, exactly once via stopOnce, to ask the monitor
+	// goroutine to exit; done is closed by the goroutine when it has exited.
+	stop     chan struct{}
+	stopOnce sync.Once
+	done     chan struct{}
+	// started records that Start launched the monitor goroutine, so Stop
+	// only waits on done when something will close it.
+	started atomic.Bool
 	// broadcaster notifies WatchHealthStatus subscribers after every
 	// probing pass so they send a fresh health report (see
 	// device_health_status.go).
@@ -55,7 +64,8 @@ func NewTPUHealthChecker(devices AllocatableDevices, state *DeviceState, devDire
 		devices:      make(map[string]AllocatableDevice),
 		state:        state,
 		devDirectory: devDirectory,
-		stop:         make(chan bool),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
 		tpuGen:       tpuGen,
 		broadcaster:  broadcaster,
 	}
@@ -76,6 +86,7 @@ func (hc *TPUHealthChecker) Start() error {
 		klog.Infof("Healthchecker receives device %s, device %v+", name, device)
 	}
 
+	hc.started.Store(true)
 	go func() {
 		if err := hc.monitorDevDir(); err != nil {
 			klog.Errorf("TPUHealthChecker monitorDevDir error: %v", err)
@@ -104,12 +115,12 @@ func (hc *TPUHealthChecker) deviceExists(deviceId string) (bool, error) {
 
 // monitorDevDir monitors the dev/ directory to see if all the TPU devices are present.
 func (hc *TPUHealthChecker) monitorDevDir() error {
+	defer close(hc.done)
 	ticker := time.NewTicker(tpuCheckInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-hc.stop:
-			close(hc.stop)
-			ticker.Stop()
 			return nil
 		case <-ticker.C:
 			for id, d := range hc.devices {
@@ -140,8 +151,11 @@ func (hc *TPUHealthChecker) monitorDevDir() error {
 	}
 }
 
-// Stop the listening go routine.
+// Stop the listening go routine and wait for it to exit. It is safe to call
+// more than once, and before or without Start.
 func (hc *TPUHealthChecker) Stop() {
-	hc.stop <- true
-	<-hc.stop
+	hc.stopOnce.Do(func() { close(hc.stop) })
+	if hc.started.Load() {
+		<-hc.done
+	}
 }
