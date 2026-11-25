@@ -18,13 +18,16 @@ TR       ?= tr
 DIST_DIR ?= $(CURDIR)/dist
 RELEASE_TAG ?= $(shell git describe --tags --always --dirty)
 HELM ?= go run helm.sh/helm/v3/cmd/helm@v3.20.1
+BUILD_BIN_PATH ?= $(CURDIR)/bin
+REPO_INFRA_VERSION ?= v0.2.6
+VERIFY_BOILERPLATE := $(BUILD_BIN_PATH)/verify_boilerplate-$(REPO_INFRA_VERSION).py
 
 include $(CURDIR)/common.mk
 
 CMDS := $(patsubst ./cmd/%/,%,$(sort $(dir $(wildcard ./cmd/*/))))
 CMD_TARGETS := $(patsubst %,cmd-%, $(CMDS))
 
-CHECK_TARGETS := lint helm-lint
+CHECK_TARGETS := lint helm-lint verify-boilerplate
 MAKE_TARGETS := binaries build check vendor fmt test test-e2e cmds coverage $(CHECK_TARGETS)
 
 TARGETS := $(MAKE_TARGETS) $(CMD_TARGETS)
@@ -60,6 +63,19 @@ lint:
 
 helm-lint:
 	$(HELM) lint --strict deployments/helm/dra-driver-google-tpu
+
+# Checks license headers against hack/boilerplate/boilerplate.<ext>.txt.
+# The script skips .git, vendor and _output by default; the paths below are
+# local build output and downloaded test helpers.
+verify-boilerplate: $(VERIFY_BOILERPLATE)
+	python3 $(VERIFY_BOILERPLATE) --boilerplate-dir hack/boilerplate \
+		--skip $(DIST_DIR) --skip $(BUILD_BIN_PATH) \
+		--skip $(CURDIR)/_artifacts --skip $(CURDIR)/tests/test_helper
+
+$(VERIFY_BOILERPLATE):
+	$(MKDIR) -p $(BUILD_BIN_PATH)
+	curl -fsSL -o $@.tmp https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py
+	mv $@.tmp $@
 
 COVERAGE_FILE := coverage.out
 test: build cmds

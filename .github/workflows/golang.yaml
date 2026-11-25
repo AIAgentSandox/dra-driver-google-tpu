@@ -26,6 +26,8 @@ jobs:
         version: latest
         args: -v --timeout 5m
 
+    - name: Verify boilerplate
+      run: make verify-boilerplate
 
   test:
     name: Unit Test
