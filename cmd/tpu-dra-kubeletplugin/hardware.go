@@ -59,8 +59,9 @@ var (
 type tpuHardware struct {
 	// devDirectory holds the character device of every chip.
 	devDirectory string
-	// deviceRegex matches the chip device names inside devDirectory.
-	deviceRegex *regexp.Regexp
+	// deviceNames lists the device file of every chip inside devDirectory, in
+	// directory order. They are the ResourceSlice and CDI device names.
+	deviceNames []string
 	chipCount   int
 	// generation is the TPU generation read from the PCI ids of the vfio
 	// devices, in the vocabulary AcceleratorGen (see util.go) uses. Empty when
@@ -145,19 +146,19 @@ func tpuGenerationFromPCIIDs(device, subsystem string) (string, bool) {
 // one /dev/vfio/<iommu group> device per chip. root is the host root, it is
 // only meant to be overridden by tests.
 func probeTPUHardware(root string) (*tpuHardware, error) {
-	if count := countAccelDevices(filepath.Join(root, devDirectory)); count > 0 {
+	if names := listAccelDevices(filepath.Join(root, devDirectory)); len(names) > 0 {
 		return &tpuHardware{
 			devDirectory: devDirectory,
-			deviceRegex:  accelDeviceRegex,
-			chipCount:    count,
+			deviceNames:  names,
+			chipCount:    len(names),
 		}, nil
 	}
 
-	if count, generation := countVfioTPUDevices(root); count > 0 {
+	if names, generation := listVfioTPUDevices(root); len(names) > 0 {
 		return &tpuHardware{
 			devDirectory: devDirectoryVfio,
-			deviceRegex:  vfioGroupRegex,
-			chipCount:    count,
+			deviceNames:  names,
+			chipCount:    len(names),
 			generation:   generation,
 		}, nil
 	}
@@ -165,35 +166,36 @@ func probeTPUHardware(root string) (*tpuHardware, error) {
 	return nil, fmt.Errorf("no TPU device found in %s or %s: %w", devDirectory, devDirectoryVfio, errNoTPUDetected)
 }
 
-// countAccelDevices counts the /dev/accel<n> devices exposed by the TPU driver.
-func countAccelDevices(devDir string) int {
+// listAccelDevices returns the names of the /dev/accel<n> devices exposed by
+// the TPU driver, in directory order.
+func listAccelDevices(devDir string) []string {
 	entries, err := os.ReadDir(devDir)
 	if err != nil {
 		klog.V(3).Infof("Cannot read %s: %v", devDir, err)
-		return 0
+		return nil
 	}
-	count := 0
+	var names []string
 	for _, entry := range entries {
 		if !entry.IsDir() && accelDeviceRegex.MatchString(entry.Name()) {
-			count++
+			names = append(names, entry.Name())
 		}
 	}
-	return count
+	return names
 }
 
-// countVfioTPUDevices counts the /dev/vfio/<iommu group> devices whose IOMMU
-// group contains a Google TPU chip, and returns the generation of those chips
-// when every one of them agrees on it (an empty generation is a valid
+// listVfioTPUDevices returns the names of the /dev/vfio/<iommu group> devices
+// whose IOMMU group contains a Google TPU chip, in directory order, and the
+// generation of those chips when every one of them agrees on it (an empty generation is a valid
 // agreement: it means none of them could be told apart, see
 // tpuGenerationOfIOMMUGroup). Other devices bound to vfio-pci also show up in
 // /dev/vfio and must not be counted as TPU chips.
-func countVfioTPUDevices(root string) (int, string) {
+func listVfioTPUDevices(root string) ([]string, string) {
 	entries, err := os.ReadDir(filepath.Join(root, devDirectoryVfio))
 	if err != nil {
 		klog.V(3).Infof("Cannot read %s: %v", devDirectoryVfio, err)
-		return 0, ""
+		return nil, ""
 	}
-	count := 0
+	var names []string
 	var generation string
 	sawGeneration := false
 	mixed := false
@@ -205,7 +207,7 @@ func countVfioTPUDevices(root string) (int, string) {
 		if !ok {
 			continue
 		}
-		count++
+		names = append(names, entry.Name())
 		switch {
 		case !sawGeneration:
 			generation = gen
@@ -216,9 +218,9 @@ func countVfioTPUDevices(root string) (int, string) {
 	}
 	if mixed {
 		klog.Warningf("IOMMU groups in %s report more than one TPU generation, ignoring all of them", devDirectoryVfio)
-		return count, ""
+		return names, ""
 	}
-	return count, generation
+	return names, generation
 }
 
 // tpuGenerationOfIOMMUGroup reports whether the IOMMU group holds a Google TPU

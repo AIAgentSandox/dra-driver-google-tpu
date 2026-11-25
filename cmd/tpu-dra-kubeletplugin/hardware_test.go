@@ -20,6 +20,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -43,6 +44,7 @@ func TestProbeTPUHardware(t *testing.T) {
 		files          map[string]string
 		wantDevDir     string
 		wantChips      int
+		wantNames      []string
 		wantGeneration string
 		wantNoTPUErr   bool
 	}{
@@ -57,6 +59,7 @@ func TestProbeTPUHardware(t *testing.T) {
 			},
 			wantDevDir: devDirectory,
 			wantChips:  4,
+			wantNames:  []string{"accel0", "accel1", "accel2", "accel3"},
 		},
 		{
 			name: "vfio devices of a recognized tpu generation",
@@ -71,6 +74,28 @@ func TestProbeTPUHardware(t *testing.T) {
 			},
 			wantDevDir:     devDirectoryVfio,
 			wantChips:      2,
+			wantNames:      []string{"12", "13"},
+			wantGeneration: "v6e",
+		},
+		{
+			name: "non-tpu vfio groups next to tpu ones are not chips",
+			files: map[string]string{
+				"dev/vfio/vfio": "",
+				"dev/vfio/12":   "",
+				"dev/vfio/13":   "",
+				"dev/vfio/14":   "",
+				"dev/vfio/15":   "",
+				"sys/kernel/iommu_groups/12/devices/0000:00:05.0/vendor": googlePCIVendorID + "\n",
+				"sys/kernel/iommu_groups/12/devices/0000:00:05.0/device": "0x006f\n", // v6e
+				"sys/kernel/iommu_groups/13/devices/0000:00:06.0/vendor": "0x10de\n", // another vendor
+				"sys/kernel/iommu_groups/14/devices/0000:00:07.0/vendor": googlePCIVendorID + "\n",
+				"sys/kernel/iommu_groups/14/devices/0000:00:07.0/device": "0x0042\n", // gVNIC
+				"sys/kernel/iommu_groups/15/devices/0000:00:08.0/vendor": googlePCIVendorID + "\n",
+				"sys/kernel/iommu_groups/15/devices/0000:00:08.0/device": "0x006f\n", // v6e
+			},
+			wantDevDir:     devDirectoryVfio,
+			wantChips:      2,
+			wantNames:      []string{"12", "15"},
 			wantGeneration: "v6e",
 		},
 		{
@@ -82,6 +107,7 @@ func TestProbeTPUHardware(t *testing.T) {
 			},
 			wantDevDir: devDirectoryVfio,
 			wantChips:  1,
+			wantNames:  []string{"12"},
 		},
 		{
 			name: "known non-tpu google device is ignored",
@@ -127,6 +153,9 @@ func TestProbeTPUHardware(t *testing.T) {
 			}
 			if got.chipCount != tt.wantChips {
 				t.Errorf("probeTPUHardware() chipCount = %d, want %d", got.chipCount, tt.wantChips)
+			}
+			if !slices.Equal(got.deviceNames, tt.wantNames) {
+				t.Errorf("probeTPUHardware() deviceNames = %v, want %v", got.deviceNames, tt.wantNames)
 			}
 			if got.generation != tt.wantGeneration {
 				t.Errorf("probeTPUHardware() generation = %q, want %q", got.generation, tt.wantGeneration)

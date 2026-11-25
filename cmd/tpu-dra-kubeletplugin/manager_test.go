@@ -17,32 +17,19 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	resourceapi "k8s.io/api/resource/v1"
 )
 
-// fakeDevDir creates a directory containing the given fake TPU device files.
-func fakeDevDir(t *testing.T, names ...string) string {
-	t.Helper()
-	dir := t.TempDir()
-	for _, n := range names {
-		if err := os.WriteFile(filepath.Join(dir, n), nil, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return dir
-}
-
 func enumerate(t *testing.T, nodeName, tpuGen string, devNames ...string) AllocatableDevices {
 	t.Helper()
 	t.Setenv("NODE_NAME", nodeName)
 	tm := &tpuManager{
 		tpuGen:       tpuGen,
-		DevDirectory: fakeDevDir(t, devNames...),
+		DevDirectory: "/dev",
+		deviceNames:  devNames,
 		tpuChipCount: len(devNames),
 	}
 	devs, err := tm.enumerateAllPossibleTpuDevices()
@@ -56,8 +43,7 @@ func enumerate(t *testing.T, nodeName, tpuGen string, devNames ...string) Alloca
 }
 
 func TestDeviceUUIDsUniquePerChip(t *testing.T) {
-	// Enumeration recognizes the accel<n> devices outside the fixed vfio path, so
-	// the fake node exposes four accel-named chips.
+	// The fake node exposes four accel-named chips.
 	devs := enumerate(t, "node-a", "v4", "accel0", "accel1", "accel2", "accel3")
 	seen := map[string]string{}
 	for name, d := range devs {
@@ -158,25 +144,25 @@ func TestValidateTpuRequest(t *testing.T) {
 }
 
 func TestEnumerateAllPossibleTpuDevices(t *testing.T) {
-	dir := t.TempDir()
-	// v4-style naming (accelN) is matched outside the vfio directory.
-	for _, name := range []string{"accel0", "accel1", "not-a-device"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte{}, 0600); err != nil {
-			t.Fatalf("WriteFile: %v", err)
-		}
-	}
-	tm := &tpuManager{DevDirectory: dir, tpuChipCount: 2, tpuGen: "v4"}
+	// Only the device names probeTPUHardware accepted are published, in order.
+	names := []string{"accel0", "accel1"}
+	tm := &tpuManager{DevDirectory: "/dev", deviceNames: names, tpuChipCount: 2, tpuGen: "v4"}
 
 	devices, err := tm.enumerateAllPossibleTpuDevices()
 	if err != nil {
 		t.Fatalf("enumerateAllPossibleTpuDevices: %v", err)
 	}
 	if len(devices) != 2 {
-		t.Errorf("expected 2 matched devices, got %d", len(devices))
+		t.Errorf("expected 2 devices, got %d", len(devices))
+	}
+	for i, name := range names {
+		if d, ok := devices[name]; !ok || d.index != i {
+			t.Errorf("device %q = %+v, want index %d", name, d, i)
+		}
 	}
 
 	// Count mismatch is an error.
-	tmBad := &tpuManager{DevDirectory: dir, tpuChipCount: 3, tpuGen: "v4"}
+	tmBad := &tpuManager{DevDirectory: "/dev", deviceNames: names, tpuChipCount: 3, tpuGen: "v4"}
 	if _, err := tmBad.enumerateAllPossibleTpuDevices(); err == nil {
 		t.Error("expected error when discovered count != expected chip count")
 	}

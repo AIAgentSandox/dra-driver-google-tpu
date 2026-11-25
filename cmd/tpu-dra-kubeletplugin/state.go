@@ -67,10 +67,10 @@ func (s *DeviceState) logDir() string {
 	return libtpuLogDir
 }
 
-func NewDeviceState(config *Config, nodeLabels map[string]string, devDir string, publishChan chan interface{}, sharesPolicy consumableSharesPolicy) (*DeviceState, error) {
+func NewDeviceState(config *Config, nodeLabels map[string]string, devDir string, deviceNames []string, publishChan chan interface{}, sharesPolicy consumableSharesPolicy) (*DeviceState, error) {
 	klog.Info("Creating new DeviceState")
 
-	tm, err := NewTPUManager(nodeLabels, devDir)
+	tm, err := NewTPUManager(nodeLabels, devDir, deviceNames)
 	if err != nil {
 		return nil, fmt.Errorf("error creating the TPU manager: %w", err)
 	}

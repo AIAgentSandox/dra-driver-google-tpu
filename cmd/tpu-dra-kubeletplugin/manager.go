@@ -18,11 +18,9 @@ package main
 
 import (
 	"fmt"
-	"io/fs"
 	"math/rand"
 	"os"
 	"path"
-	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -33,9 +31,7 @@ import (
 )
 
 const (
-	tpuV4DeviceRegex        = `^accel[0-9]*$`
-	tpuDeviceNumericalRegex = `^\d+$`
-	defaultDeviceID         = "vfio"
+	defaultDeviceID = "vfio"
 	// libtpuLogDir is the host path that libtpu writes its logs to. It is shared by
 	// every claim on the node and tailed by the log collector sidecar.
 	libtpuLogDir     = "/tmp/tpu_logs"
@@ -62,6 +58,9 @@ type AllocatableDevice struct {
 // tpuManager manages google tpu devices.
 type tpuManager struct {
 	DevDirectory string
+	// deviceNames are the chip device files inside DevDirectory found by
+	// probeTPUHardware, in directory order.
+	deviceNames  []string
 	tpuGen       string
 	devices      AllocatableDevices
 	tpuChipCount int
@@ -71,7 +70,7 @@ type tpuManager struct {
 	tpuLogDir    string
 }
 
-func NewTPUManager(nodeLabels map[string]string, devDirectory string) (*tpuManager, error) {
+func NewTPUManager(nodeLabels map[string]string, devDirectory string, deviceNames []string) (*tpuManager, error) {
 	accelerator := nodeLabels[AcceleratorLabel]
 	acceleratorCount := nodeLabels[AcceleratorCountLabel]
 	topology := nodeLabels[TopologyLabel]
@@ -113,6 +112,7 @@ func NewTPUManager(nodeLabels map[string]string, devDirectory string) (*tpuManag
 	return &tpuManager{
 		tpuGen:       tpuGen,
 		DevDirectory: devDirectory,
+		deviceNames:  deviceNames,
 		tpuChipCount: chipCount,
 		nodeLabels:   nodeLabels,
 		envs:         envs,
@@ -154,11 +154,11 @@ func (d *AllocatableDevice) GetDevice() resourceapi.Device {
 	return device
 }
 
-func (tm *tpuManager) getTpuInfo(i int, f fs.DirEntry) *AllocatableDevice {
-	uuid := tm.generateUUIDs(deviceUUIDSeed(os.Getenv("NODE_NAME"), f.Name()))
+func (tm *tpuManager) getTpuInfo(i int, name string) *AllocatableDevice {
+	uuid := tm.generateUUIDs(deviceUUIDSeed(os.Getenv("NODE_NAME"), name))
 	allocatableDevice := &AllocatableDevice{
 		UUID:  uuid,
-		name:  f.Name(),
+		name:  name,
 		index: i,
 		// memoryBytes:   memory.Total, Question?
 		tpuGen:        tm.tpuGen,
@@ -172,32 +172,17 @@ func (tm *tpuManager) getTpuInfo(i int, f fs.DirEntry) *AllocatableDevice {
 	return allocatableDevice
 }
 
-// Discovers all TPU devices available on the local node by walking tpuManager's devDirectory.
+// Builds the allocatable devices from the chip device files probeTPUHardware
+// found, so that only devices it recognized as TPU chips are published.
 func (tm *tpuManager) enumerateAllPossibleTpuDevices() (AllocatableDevices, error) {
 	klog.Info("Enumerating all possible Tpu Devices")
-	// The device naming depends on the kernel interface the chips are bound to,
-	// not on the TPU generation, which may be unknown to this driver.
-	reg := regexp.MustCompile(tpuV4DeviceRegex)
-	if tm.DevDirectory == devDirectoryVfio {
-		reg = regexp.MustCompile(tpuDeviceNumericalRegex)
-	}
-	files, err := os.ReadDir(tm.DevDirectory)
-	if err != nil {
-		return nil, err
-	}
-
 	allocatableDevices := make(AllocatableDevices)
 	num_devices := 0
-	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
-		if reg.MatchString(f.Name()) {
-			klog.Infof("Found Google TPU %q\n", f.Name())
-			device := tm.getTpuInfo(num_devices, f)
-			allocatableDevices[device.name] = device
-			num_devices++
-		}
+	for _, name := range tm.deviceNames {
+		klog.Infof("Found Google TPU %q\n", name)
+		device := tm.getTpuInfo(num_devices, name)
+		allocatableDevices[device.name] = device
+		num_devices++
 	}
 	// how to handle this gracefully?
 	if num_devices != tm.tpuChipCount {

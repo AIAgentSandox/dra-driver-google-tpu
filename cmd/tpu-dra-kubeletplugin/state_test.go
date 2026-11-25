@@ -518,17 +518,12 @@ func TestPrepareRestoredClaimFailsWhenClaimSpecCannotBeRecreated(t *testing.T) {
 	}
 }
 
-// newDeviceStateFixture builds a devDir with two accel-style character device
-// files and a Config whose DriverPluginPath exists, so NewDeviceState can
-// enumerate exactly two chips and run its checkpoint manager.
+// newDeviceStateFixture builds a devDir and a Config whose DriverPluginPath
+// exists, so NewDeviceState can enumerate the two chips the tests pass it and
+// run its checkpoint manager.
 func newDeviceStateFixture(t *testing.T) (*Config, map[string]string, string) {
 	t.Helper()
 	devDir := t.TempDir()
-	for _, name := range []string{"accel0", "accel1"} {
-		if err := os.WriteFile(filepath.Join(devDir, name), []byte{}, 0600); err != nil {
-			t.Fatalf("WriteFile: %v", err)
-		}
-	}
 	config := &Config{flags: &Flags{
 		cdiRoot:                     t.TempDir(),
 		kubeletPluginsDirectoryPath: t.TempDir(),
@@ -547,7 +542,7 @@ func newDeviceStateFixture(t *testing.T) (*Config, map[string]string, string) {
 func TestNewDeviceState(t *testing.T) {
 	config, labels, devDir := newDeviceStateFixture(t)
 
-	state, err := NewDeviceState(config, labels, devDir, make(chan interface{}, 1), consumableSharesPolicy{})
+	state, err := NewDeviceState(config, labels, devDir, []string{"accel0", "accel1"}, make(chan interface{}, 1), consumableSharesPolicy{})
 	if err != nil {
 		t.Fatalf("NewDeviceState: %v", err)
 	}
@@ -577,7 +572,7 @@ func TestNewDeviceStateReusesExistingCheckpoint(t *testing.T) {
 	config, labels, devDir := newDeviceStateFixture(t)
 
 	// First call creates the checkpoint.
-	state, err := NewDeviceState(config, labels, devDir, make(chan interface{}, 1), consumableSharesPolicy{})
+	state, err := NewDeviceState(config, labels, devDir, []string{"accel0", "accel1"}, make(chan interface{}, 1), consumableSharesPolicy{})
 	if err != nil {
 		t.Fatalf("NewDeviceState (first): %v", err)
 	}
@@ -590,7 +585,7 @@ func TestNewDeviceStateReusesExistingCheckpoint(t *testing.T) {
 	}
 
 	// Second call must take the reuse branch, not clobber the checkpoint.
-	if _, err = NewDeviceState(config, labels, devDir, make(chan interface{}, 1), consumableSharesPolicy{}); err != nil {
+	if _, err = NewDeviceState(config, labels, devDir, []string{"accel0", "accel1"}, make(chan interface{}, 1), consumableSharesPolicy{}); err != nil {
 		t.Fatalf("NewDeviceState (reuse): %v", err)
 	}
 
