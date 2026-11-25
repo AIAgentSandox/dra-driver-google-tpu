@@ -327,9 +327,8 @@ func AcceleratorGen(accelerator string) (string, error) {
 	return gen, nil
 }
 
-// numCores calculates the number of cores based on the topology.
-// Lite = 1 core per chip
-// Non-lite = 2 cores per chip.
+// numCores calculates the number of cores based on the topology and the
+// generation's cores per chip (tpuGenerationFamilies in hardware.go).
 func numCores(tpuGen string, topologyDims []int64) (int, error) {
 	// Calculate total chips in the podslice.
 	totalChips, err := calculateTotalChips(topologyDims)
@@ -337,13 +336,11 @@ func numCores(tpuGen string, topologyDims []int64) (int, error) {
 		return 0, err
 	}
 
-	// lite-device and lite-podslice have 1 core per chip.
-	// v6e is also a "lite"
-	if strings.Contains(tpuGen, "lite") || strings.Contains(tpuGen, "v6e") {
-		return totalChips, nil
+	generation, ok := lookupTPUGeneration(tpuGen)
+	if !ok {
+		return 0, fmt.Errorf("invalid TPU generation: %s", tpuGen)
 	}
-	// device and podslice have 2 cores per chip.
-	return totalChips * 2, nil
+	return totalChips * generation.coresPerChip, nil
 }
 
 func calculateHostBounds(requestedChipCount int, topologyDims []int64) (string, error) {
@@ -439,8 +436,9 @@ func addPodsliceOrSliceEnvs(tpuGen, enableICIResiliency string, requestedChipCou
 		return err
 	}
 
-	// Enable ICI resiliency on for v4 / v5p topologies >= 4x4x4.
-	if strings.HasPrefix(tpuGen, "v4") || strings.HasPrefix(tpuGen, "v5p") {
+	// Enable ICI resiliency for the generations that support it (v4, v5p)
+	// on topologies >= 4x4x4.
+	if generation, ok := lookupTPUGeneration(tpuGen); ok && generation.iciResiliency {
 		if cubeOrLarger(topologyDims) {
 			envs[ICIResiliencyEnv] = "true"
 			if strings.ToLower(enableICIResiliency) == "false" {
@@ -515,13 +513,36 @@ func isSingleHostNode(nodeLabels map[string]string) bool {
 }
 
 func wrap(tpuGen string, topologyDims []int64) (string, error) {
-	switch tpuGen {
-	case "v3", "v4", "v4lite", "v5p":
+	generation, ok := lookupTPUGeneration(tpuGen)
+	if !ok {
+		return "", fmt.Errorf("invalid TPU generation: %s", tpuGen)
+	}
+	switch generation.wrap {
+	case wrapCube:
 		return wrapVersion(topologyDims), nil
-	case "v5lite", "v5litepod", "v6e":
+	case wrapLitePodRule:
 		return wrapLitePod(topologyDims), nil
 	}
-	return "", fmt.Errorf("invalid TPU generation: %s", tpuGen)
+	return "", fmt.Errorf("no wraparound rule for TPU generation: %s", tpuGen)
+}
+
+// acceleratorLabelForTpuEnvType returns the accelerator label of the
+// generation whose tpuEnvPrefix (tpuGenerationFamilies in hardware.go) is the
+// longest prefix of the lowercase tpu-env ACCELERATOR_TYPE accelTypeLower, so
+// that v5litepod wins over v5lite. Empty if no generation matches.
+func acceleratorLabelForTpuEnvType(accelTypeLower string) string {
+	var label, prefix string
+	for _, family := range tpuGenerationFamilies {
+		for _, generation := range family.generations {
+			if generation.tpuEnvPrefix == "" || len(generation.tpuEnvPrefix) <= len(prefix) {
+				continue
+			}
+			if strings.HasPrefix(accelTypeLower, generation.tpuEnvPrefix) {
+				label, prefix = generation.acceleratorLabel, generation.tpuEnvPrefix
+			}
+		}
+	}
+	return label
 }
 
 func wrapVersion(topologyDims []int64) string {
@@ -644,22 +665,9 @@ func mapTpuEnvToLabels(envMap map[string]string) map[string]string {
 	}
 
 	// Map accelerator to the "tpu-<gen>-<form factor>" naming used by the labels.
-	var accelerator string
 	accelTypeLower := strings.ToLower(accelType)
-	switch {
-	case strings.HasPrefix(accelTypeLower, "v5litepod"):
-		accelerator = "tpu-v5-lite-podslice"
-	case strings.HasPrefix(accelTypeLower, "v5lite"):
-		accelerator = "tpu-v5-lite-device"
-	case strings.HasPrefix(accelTypeLower, "v5p"):
-		accelerator = "tpu-v5p-slice"
-	case strings.HasPrefix(accelTypeLower, "v6e"):
-		accelerator = "tpu-v6e-slice"
-	case strings.HasPrefix(accelTypeLower, "v4"):
-		accelerator = "tpu-v4-podslice"
-	case strings.HasPrefix(accelTypeLower, "v3"):
-		accelerator = "tpu-v3-device"
-	default:
+	accelerator := acceleratorLabelForTpuEnvType(accelTypeLower)
+	if accelerator == "" {
 		accelerator = accelTypeLower // fallback
 	}
 

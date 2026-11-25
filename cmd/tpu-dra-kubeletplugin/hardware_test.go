@@ -237,3 +237,35 @@ func TestCompleteLabelsFromHardware(t *testing.T) {
 		})
 	}
 }
+
+func TestTPUGenerationTableIsConsistent(t *testing.T) {
+	names := map[string]bool{}
+	prefixes := map[string]string{}
+	for _, family := range tpuGenerationFamilies {
+		if len(family.generations) == 0 {
+			t.Errorf("family %s has no generations", family.pciDeviceID)
+		}
+		for _, generation := range family.generations {
+			if names[generation.name] {
+				t.Errorf("generation %q is listed twice", generation.name)
+			}
+			names[generation.name] = true
+			if generation.coresPerChip <= 0 {
+				t.Errorf("generation %q: coresPerChip = %d, want > 0", generation.name, generation.coresPerChip)
+			}
+			if _, err := wrap(generation.name, []int64{2, 2, 1}); err != nil {
+				t.Errorf("generation %q has no wraparound rule: %v", generation.name, err)
+			}
+			if (generation.tpuEnvPrefix == "") != (generation.acceleratorLabel == "") {
+				t.Errorf("generation %q: tpuEnvPrefix %q and acceleratorLabel %q must be set together", generation.name, generation.tpuEnvPrefix, generation.acceleratorLabel)
+			}
+			if generation.tpuEnvPrefix == "" {
+				continue
+			}
+			if other, ok := prefixes[generation.tpuEnvPrefix]; ok {
+				t.Errorf("tpuEnvPrefix %q is used by both %q and %q", generation.tpuEnvPrefix, other, generation.name)
+			}
+			prefixes[generation.tpuEnvPrefix] = generation.name
+		}
+	}
+}

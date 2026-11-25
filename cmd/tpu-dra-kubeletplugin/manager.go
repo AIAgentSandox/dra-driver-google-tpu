@@ -23,7 +23,6 @@ import (
 	"os"
 	"path"
 	"regexp"
-	"strings"
 
 	"github.com/google/uuid"
 	resourceapi "k8s.io/api/resource/v1"
@@ -244,8 +243,8 @@ func (tm *tpuManager) DeviceNodeContainerEdits(deviceID string) []*cdispec.Devic
 		HostPath:    path.Join(tm.DevDirectory, deviceID),
 		Permissions: "mrw",
 	})
-	// Currently v5 & v6 devices have this extra device that needs to be included.
-	if strings.HasPrefix(tm.tpuGen, "v5") || strings.HasPrefix(tm.tpuGen, "v6e") {
+	// Some generations (v5lite, v5litepod, v5p, v6e) need this extra device too.
+	if generation, ok := lookupTPUGeneration(tm.tpuGen); ok && generation.needsVfioContainerNode {
 		deviceNodes = append(deviceNodes, &cdispec.DeviceNode{
 			Path:        path.Join(tm.DevDirectory, defaultDeviceID),
 			HostPath:    path.Join(tm.DevDirectory, defaultDeviceID),

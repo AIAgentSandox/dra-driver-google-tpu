@@ -70,6 +70,44 @@ type tpuHardware struct {
 	generation string
 }
 
+// wrapRule is how a TPU generation decides the TPU_TOPOLOGY_WRAP env var, see
+// wrap in util.go.
+type wrapRule int
+
+const (
+	// wrapCube wraps around every dimension once the topology is a 4x4x4
+	// cube or larger (wrapVersion).
+	wrapCube wrapRule = iota + 1
+	// wrapLitePodRule wraps around each dimension that is at its maximum
+	// size (wrapLitePod).
+	wrapLitePodRule
+)
+
+// tpuGeneration is what the driver knows about one TPU generation, in the
+// vocabulary AcceleratorGen (see util.go) uses.
+type tpuGeneration struct {
+	// name is the string AcceleratorGen returns, e.g. "v5litepod".
+	name string
+	// coresPerChip is the number of TensorCores per chip, used for the
+	// "<gen>-<cores>" accelerator type handed to libtpu (numCores).
+	coresPerChip int
+	// wrap is the wraparound rule for TPU_TOPOLOGY_WRAP.
+	wrap wrapRule
+	// iciResiliency is whether TPU_ICI_RESILIENCY is set for topologies of a
+	// 4x4x4 cube or larger (addPodsliceOrSliceEnvs).
+	iciResiliency bool
+	// needsVfioContainerNode is whether the container also needs the
+	// /dev/vfio/vfio node next to the chips (DeviceNodeContainerEdits).
+	needsVfioContainerNode bool
+	// tpuEnvPrefix is the prefix of the tpu-env ACCELERATOR_TYPE (lowercase)
+	// that maps to acceleratorLabel (mapTpuEnvToLabels). Empty when the
+	// tpu-env file never names this generation on its own.
+	tpuEnvPrefix string
+	// acceleratorLabel is the accelerator label value a tpu-env
+	// ACCELERATOR_TYPE starting with tpuEnvPrefix maps to.
+	acceleratorLabel string
+}
+
 // tpuGenerationFamily is a TPU generation family this driver supports: every
 // chip of a family shares one PCI device id (and, when that id is reused
 // across families as v2 and v3 do, a subsystem id too).
@@ -78,47 +116,73 @@ type tpuGenerationFamily struct {
 	// pciSubsystemID disambiguates a pciDeviceID reused by more than one
 	// family. Leave empty when the device id alone is enough.
 	pciSubsystemID string
-	// generations lists every string AcceleratorGen (see util.go) can return
-	// for a chip of this family. More than one when the same silicon takes
-	// more than one form factor the PCI id cannot tell apart, e.g. v4 and
-	// v4lite, or v5lite (v5e) and v5litepod: tpuGenerationFromPCIIDs then
+	// generations lists every generation AcceleratorGen (see util.go) can
+	// return for a chip of this family. More than one when the same silicon
+	// takes more than one form factor the PCI id cannot tell apart, e.g. v4
+	// and v4lite, or v5lite (v5e) and v5litepod: tpuGenerationFromPCIIDs then
 	// resolves to the first, which completeLabelsFromHardware (util.go) only
 	// uses to double check a label another source already provided, never to
 	// pick between the two on its own.
-	generations []string
+	generations []tpuGeneration
 }
 
 // tpuGenerationFamilies is the single source of truth for the TPU generations
-// this driver knows: it both tells hardware detection how to recognize a
-// generation from its PCI ids (tpuGenerationFromPCIIDs) and tells
-// AcceleratorGen (util.go) which generation strings are valid
-// (isValidTPUGeneration), so a new generation only has to be added here.
+// this driver knows. It tells hardware detection how to recognize a
+// generation from its PCI ids (tpuGenerationFromPCIIDs), tells AcceleratorGen
+// (util.go) which generation strings are valid (isValidTPUGeneration), and
+// holds each generation's properties: cores per chip (numCores), the
+// wraparound rule (wrap), ICI resiliency (addPodsliceOrSliceEnvs), the extra
+// /dev/vfio/vfio container node (DeviceNodeContainerEdits) and the tpu-env
+// ACCELERATOR_TYPE to accelerator label mapping (mapTpuEnvToLabels).
 //
 // To add one: find its PCI device id under
 // /sys/bus/pci/devices/<addr>/device on a host with the chip, or in Google's
 // own tpu-info tool, the closest thing to an authoritative source for these
 // ids: https://github.com/AI-Hypercomputer/cloud-accelerator-diagnostics/blob/main/tpu_info/tpu_info/device.py
+// Then fill in its properties here, and check that AcceleratorGen can parse
+// its accelerator label: pastAcceleratorRegex (util.go) only accepts
+// "tpu-v<digits>…", so a name like tpu-v7x-… needs that regex edited too.
 var tpuGenerationFamilies = []tpuGenerationFamily{
 	// v2 shares this device id (subsystem 0x004e) but is not supported.
-	{pciDeviceID: "0x0027", pciSubsystemID: "0x004f", generations: []string{"v3"}},
-	{pciDeviceID: "0x005e", generations: []string{"v4", "v4lite"}},
-	{pciDeviceID: "0x0063", generations: []string{"v5lite", "v5litepod"}}, // v5e
-	{pciDeviceID: "0x0062", generations: []string{"v5p"}},
-	{pciDeviceID: "0x006f", generations: []string{"v6e"}},
-	// {pciDeviceID: "0x0076", generations: []string{"v7x"}}, // Ironwood, not yet supported by this driver.
+	{pciDeviceID: "0x0027", pciSubsystemID: "0x004f", generations: []tpuGeneration{
+		{name: "v3", coresPerChip: 2, wrap: wrapCube, tpuEnvPrefix: "v3", acceleratorLabel: "tpu-v3-device"},
+	}},
+	{pciDeviceID: "0x005e", generations: []tpuGeneration{
+		{name: "v4", coresPerChip: 2, wrap: wrapCube, iciResiliency: true, tpuEnvPrefix: "v4", acceleratorLabel: "tpu-v4-podslice"},
+		{name: "v4lite", coresPerChip: 1, wrap: wrapCube, iciResiliency: true},
+	}},
+	{pciDeviceID: "0x0063", generations: []tpuGeneration{ // v5e
+		{name: "v5lite", coresPerChip: 1, wrap: wrapLitePodRule, needsVfioContainerNode: true, tpuEnvPrefix: "v5lite", acceleratorLabel: "tpu-v5-lite-device"},
+		{name: "v5litepod", coresPerChip: 1, wrap: wrapLitePodRule, needsVfioContainerNode: true, tpuEnvPrefix: "v5litepod", acceleratorLabel: "tpu-v5-lite-podslice"},
+	}},
+	{pciDeviceID: "0x0062", generations: []tpuGeneration{
+		{name: "v5p", coresPerChip: 2, wrap: wrapCube, iciResiliency: true, needsVfioContainerNode: true, tpuEnvPrefix: "v5p", acceleratorLabel: "tpu-v5p-slice"},
+	}},
+	{pciDeviceID: "0x006f", generations: []tpuGeneration{
+		{name: "v6e", coresPerChip: 1, wrap: wrapLitePodRule, needsVfioContainerNode: true, tpuEnvPrefix: "v6e", acceleratorLabel: "tpu-v6e-slice"},
+	}},
+	// {pciDeviceID: "0x0076", ...}, // v7x (Ironwood), not yet supported by this driver.
+}
+
+// lookupTPUGeneration returns the generation named name (in the vocabulary
+// AcceleratorGen, see util.go, uses) from tpuGenerationFamilies, or false if
+// this driver does not know it.
+func lookupTPUGeneration(name string) (tpuGeneration, bool) {
+	for _, family := range tpuGenerationFamilies {
+		for _, generation := range family.generations {
+			if generation.name == name {
+				return generation, true
+			}
+		}
+	}
+	return tpuGeneration{}, false
 }
 
 // isValidTPUGeneration reports whether v is a generation AcceleratorGen (see
 // util.go) can return, i.e. one listed in tpuGenerationFamilies.
 func isValidTPUGeneration(v string) bool {
-	for _, family := range tpuGenerationFamilies {
-		for _, generation := range family.generations {
-			if generation == v {
-				return true
-			}
-		}
-	}
-	return false
+	_, ok := lookupTPUGeneration(v)
+	return ok
 }
 
 // tpuGenerationFromPCIIDs returns the TPU generation matching the PCI device
@@ -134,7 +198,7 @@ func tpuGenerationFromPCIIDs(device, subsystem string) (string, bool) {
 		if family.pciSubsystemID != "" && family.pciSubsystemID != subsystem {
 			continue
 		}
-		return family.generations[0], true
+		return family.generations[0].name, true
 	}
 	return "", false
 }
